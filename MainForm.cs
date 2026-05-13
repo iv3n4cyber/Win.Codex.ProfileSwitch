@@ -84,9 +84,15 @@ internal sealed class MainForm : Form
 
     private void UpdateDetails()
     {
+        var currentProfile = profileService.ListProfiles().FirstOrDefault(item => item.IsCurrent);
+        var currentProfileText = currentProfile is null ? "未匹配任何 Profile" : currentProfile.Name;
+
         if (profileList.SelectedItem is not CodexProfile profile)
         {
             details.Text = $"""
+            当前 Profile：
+            {currentProfileText}
+
             Profile 目录：
             {CodexPaths.ProfilesRoot}
 
@@ -101,8 +107,13 @@ internal sealed class MainForm : Form
             return;
         }
 
+        var selectedStatus = profile.IsCurrent ? "当前正在使用" : "未使用";
         details.Text = $"""
         Profile：{profile.Name}
+        状态：{selectedStatus}
+
+        当前 Profile：
+        {currentProfileText}
 
         路径：
         {profile.DirectoryPath}
@@ -229,6 +240,7 @@ internal sealed class MainForm : Form
         try
         {
             profileService.SwitchTo(profile);
+            RefreshProfiles();
             MessageBox.Show(
                 $"已切换到 {profile.Name}。\n\n建议新开 Codex 会话或重启 Codex 客户端。",
                 "Win.Codex.ProfileSwitch"

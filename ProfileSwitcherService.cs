@@ -1,11 +1,19 @@
 namespace Win.Codex.ProfileSwitch;
 
-internal sealed record CodexProfile(string Name, string DirectoryPath)
+internal sealed record CodexProfile(string Name, string DirectoryPath, bool IsCurrent = false)
 {
     public string AuthJsonPath => Path.Combine(DirectoryPath, "auth.json");
     public string ConfigTomlPath => Path.Combine(DirectoryPath, "config.toml");
     public bool IsComplete => File.Exists(AuthJsonPath) && File.Exists(ConfigTomlPath);
-    public override string ToString() => IsComplete ? Name : $"{Name} (缺少文件)";
+    public override string ToString()
+    {
+        if (!IsComplete)
+        {
+            return $"{Name} (缺少文件)";
+        }
+
+        return IsCurrent ? $"{Name} (当前)" : Name;
+    }
 }
 
 internal sealed class ProfileSwitcherService
@@ -15,6 +23,7 @@ internal sealed class ProfileSwitcherService
         CodexPaths.EnsureDirectories();
         return Directory.GetDirectories(CodexPaths.ProfilesRoot)
             .Select(path => new CodexProfile(Path.GetFileName(path), path))
+            .Select(profile => profile with { IsCurrent = IsCurrentProfile(profile) })
             .OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
@@ -165,6 +174,13 @@ internal sealed class ProfileSwitcherService
             profile.IsComplete &&
             FilesHaveSameContent(profile.AuthJsonPath, authPath) &&
             FilesHaveSameContent(profile.ConfigTomlPath, configPath));
+    }
+
+    private static bool IsCurrentProfile(CodexProfile profile)
+    {
+        return profile.IsComplete &&
+            FilesHaveSameContent(profile.AuthJsonPath, CodexPaths.AuthJsonPath) &&
+            FilesHaveSameContent(profile.ConfigTomlPath, CodexPaths.ConfigTomlPath);
     }
 
     private static bool FilesHaveSameContent(string firstPath, string secondPath)

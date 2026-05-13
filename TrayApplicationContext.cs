@@ -13,22 +13,33 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             Icon = SystemIcons.Application,
             Text = "Win.Codex.ProfileSwitch",
-            Visible = true,
-            ContextMenuStrip = BuildMenu()
+            Visible = true
         };
+        trayIcon.ContextMenuStrip = BuildMenu();
         trayIcon.DoubleClick += (_, _) => ShowMainForm();
     }
 
     private ContextMenuStrip BuildMenu()
     {
+        var profiles = profileService.ListProfiles();
+        var currentProfile = profiles.FirstOrDefault(profile => profile.IsCurrent);
+        UpdateTrayText(currentProfile?.Name);
+
         var menu = new ContextMenuStrip();
         menu.Items.Add("打开管理窗口", null, (_, _) => ShowMainForm());
+        menu.Items.Add(
+            currentProfile is null ? "当前 Profile：未匹配" : $"当前 Profile：{currentProfile.Name}",
+            null,
+            (_, _) => ShowMainForm()
+        ).Enabled = false;
+        menu.Items.Add(new ToolStripSeparator());
         var profilesMenu = new ToolStripMenuItem("切换 Profile");
-        foreach (var profile in profileService.ListProfiles())
+        foreach (var profile in profiles)
         {
             var item = new ToolStripMenuItem(profile.ToString())
             {
-                Enabled = profile.IsComplete
+                Enabled = profile.IsComplete,
+                Checked = profile.IsCurrent
             };
             item.Click += (_, _) => SwitchProfile(profile);
             profilesMenu.DropDownItems.Add(item);
@@ -65,7 +76,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             profileService.SwitchTo(profile);
-            trayIcon.Text = $"Win.Codex.ProfileSwitch - {profile.Name}";
+            trayIcon.ContextMenuStrip = BuildMenu();
             MessageBox.Show(
                 $"已切换到 {profile.Name}。\n\n历史 sessions 仍然保持在同一份 .codex 目录中。",
                 "Win.Codex.ProfileSwitch"
@@ -83,9 +94,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         {
             trayIcon.Text = "Win.Codex.ProfileSwitch - 正在重启 Codex";
             var result = await restartService.RestartAsync();
-            trayIcon.Text = result.Started
-                ? "Win.Codex.ProfileSwitch - Codex 已重启"
-                : "Win.Codex.ProfileSwitch";
+            trayIcon.ContextMenuStrip = BuildMenu();
 
             MessageBox.Show(
                 result.Message,
@@ -99,6 +108,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
             trayIcon.Text = "Win.Codex.ProfileSwitch";
             MessageBox.Show(ex.Message, "重启 Codex 失败", MessageBoxButtons.OK, MessageBoxIcon.Error);
         }
+    }
+
+    private void UpdateTrayText(string? currentProfileName)
+    {
+        trayIcon.Text = currentProfileName is null
+            ? "Win.Codex.ProfileSwitch - 未匹配 Profile"
+            : $"Win.Codex.ProfileSwitch - {currentProfileName}";
     }
 
     protected override void ExitThreadCore()
