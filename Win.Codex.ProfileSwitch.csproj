@@ -8,6 +8,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>Win.Codex.ProfileSwitch</AssemblyName>
     <RootNamespace>Win.Codex.ProfileSwitch</RootNamespace>
+    <ApplicationIcon Condition="Exists('app.ico')">app.ico</ApplicationIcon>
   </PropertyGroup>
+
+  <ItemGroup Condition="Exists('app.ico')">
+    <EmbeddedResource Include="app.ico" LogicalName="AppIcon.ico" />
+  </ItemGroup>
 
 </Project>

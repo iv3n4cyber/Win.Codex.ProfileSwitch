@@ -24,12 +24,18 @@ internal sealed class CodexClientRestartService
         {
             return new RestartResult(
                 false,
-                "已关闭正在运行的 Codex 客户端，但没有找到可启动的 Codex 安装路径。请从开始菜单手动打开一次 Codex。"
+                AppText.S(
+                    "Closed the running Codex client, but no launchable Codex installation path was found. Please open Codex manually from the Start menu once.",
+                    "已关闭正在运行的 Codex 客户端，但没有找到可启动的 Codex 安装路径。请从开始菜单手动打开一次 Codex。"
+                )
             );
         }
 
         StartCodex(launchTarget.Value);
-        return new RestartResult(true, "已关闭并重新启动 Codex 客户端。");
+        return new RestartResult(true, AppText.S(
+            "Closed and restarted the Codex client.",
+            "已关闭并重新启动 Codex 客户端。"
+        ));
     }
 
     private static List<Process> FindCodexClientProcesses()
@@ -252,7 +258,10 @@ internal sealed class CodexClientRestartService
                 Arguments = $"shell:AppsFolder\\{target.Value}",
                 UseShellExecute = true
             },
-            _ => throw new InvalidOperationException("不支持的 Codex 启动方式")
+            _ => throw new InvalidOperationException(AppText.S(
+                "Unsupported Codex launch method.",
+                "不支持的 Codex 启动方式"
+            ))
         };
 
         Process.Start(startInfo);

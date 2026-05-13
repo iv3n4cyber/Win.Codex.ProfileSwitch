@@ -9,10 +9,10 @@ internal sealed record CodexProfile(string Name, string DirectoryPath, bool IsCu
     {
         if (!IsComplete)
         {
-            return $"{Name} (缺少文件)";
+            return AppText.S($"{Name} (missing files)", $"{Name} (缺少文件)");
         }
 
-        return IsCurrent ? $"{Name} (当前)" : Name;
+        return IsCurrent ? AppText.S($"{Name} (current)", $"{Name} (当前)") : Name;
     }
 }
 
@@ -45,7 +45,10 @@ internal sealed class ProfileSwitcherService
         var destination = Path.Combine(CodexPaths.ProfilesRoot, profileName);
         if (Directory.Exists(destination))
         {
-            throw new InvalidOperationException($"Profile 已存在：{profileName}");
+            throw new InvalidOperationException(AppText.S(
+                $"Profile already exists: {profileName}",
+                $"Profile 已存在：{profileName}"
+            ));
         }
 
         Directory.Move(profile.DirectoryPath, destination);
@@ -56,7 +59,10 @@ internal sealed class ProfileSwitcherService
     {
         if (!profile.IsComplete)
         {
-            throw new InvalidOperationException("这个 profile 必须同时包含 auth.json 和 config.toml");
+            throw new InvalidOperationException(AppText.S(
+                "This profile must contain both auth.json and config.toml.",
+                "这个 profile 必须同时包含 auth.json 和 config.toml"
+            ));
         }
 
         CodexPaths.EnsureDirectories();
@@ -80,7 +86,10 @@ internal sealed class ProfileSwitcherService
     {
         if (!File.Exists(source))
         {
-            throw new FileNotFoundException($"当前 .codex 中不存在 {Path.GetFileName(source)}", source);
+            throw new FileNotFoundException(AppText.S(
+                $"The current .codex folder does not contain {Path.GetFileName(source)}.",
+                $"当前 .codex 中不存在 {Path.GetFileName(source)}"
+            ), source);
         }
 
         File.Copy(source, destination, overwrite: true);
@@ -134,12 +143,15 @@ internal sealed class ProfileSwitcherService
         {
             "auth.json" => profile.AuthJsonPath,
             "config.toml" => profile.ConfigTomlPath,
-            _ => throw new InvalidOperationException("不支持的文件")
+            _ => throw new InvalidOperationException(AppText.S("Unsupported file.", "不支持的文件"))
         };
 
         if (!File.Exists(path))
         {
-            throw new FileNotFoundException($"Profile 中不存在 {fileName}", path);
+            throw new FileNotFoundException(AppText.S(
+                $"The profile does not contain {fileName}.",
+                $"Profile 中不存在 {fileName}"
+            ), path);
         }
 
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -217,7 +229,10 @@ internal sealed class ProfileSwitcherService
         var trimmed = name.Trim();
         if (trimmed.Length == 0)
         {
-            throw new InvalidOperationException("Profile 名称不能为空");
+            throw new InvalidOperationException(AppText.S(
+                "Profile name cannot be empty.",
+                "Profile 名称不能为空"
+            ));
         }
 
         foreach (var invalid in Path.GetInvalidFileNameChars())
