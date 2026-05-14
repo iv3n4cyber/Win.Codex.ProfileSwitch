@@ -220,13 +220,6 @@ internal sealed class TrayApplicationContext : ApplicationContext
             usageStatus = usageService.GetLocalSnapshotStatus();
             trayIcon.ContextMenuStrip = BuildMenu();
             _ = RefreshUsageStatusAsync();
-            MessageBox.Show(
-                AppText.S(
-                    $"Switched to {profile.Name}.\n\nSession history remains in the shared .codex folder.",
-                    $"已切换到 {profile.Name}。\n\n历史 sessions 仍然保持在同一份 .codex 目录中。"
-                ),
-                "Win.Codex.ProfileSwitch"
-            );
         }
         catch (Exception ex)
         {
@@ -242,16 +235,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 "Win.Codex.ProfileSwitch - Restarting Codex",
                 "Win.Codex.ProfileSwitch - 正在重启 Codex"
             );
-            var result = await restartService.RestartAsync();
+            await restartService.RestartAsync();
             usageStatus = await usageService.GetStatusAsync();
             trayIcon.ContextMenuStrip = BuildMenu();
-
-            MessageBox.Show(
-                result.Message,
-                "Win.Codex.ProfileSwitch",
-                MessageBoxButtons.OK,
-                result.Started ? MessageBoxIcon.Information : MessageBoxIcon.Warning
-            );
         }
         catch (Exception ex)
         {

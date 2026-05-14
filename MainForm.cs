@@ -341,13 +341,6 @@ internal sealed class MainForm : Form
         {
             profileService.SwitchTo(profile);
             RefreshProfiles();
-            MessageBox.Show(
-                AppText.S(
-                    $"Switched to {profile.Name}.\n\nStart a new Codex session or restart the Codex client.",
-                    $"已切换到 {profile.Name}。\n\n建议新开 Codex 会话或重启 Codex 客户端。"
-                ),
-                "Win.Codex.ProfileSwitch"
-            );
         }
         catch (Exception ex)
         {
