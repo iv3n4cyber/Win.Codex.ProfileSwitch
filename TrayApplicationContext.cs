@@ -5,12 +5,17 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon trayIcon;
     private readonly ProfileSwitcherService profileService = new();
     private readonly CodexClientRestartService restartService = new();
+    private readonly CodexUsageService usageService = new();
+    private readonly System.Windows.Forms.Timer usageRefreshTimer = new();
     private readonly Icon appIcon;
+    private CodexUsageStatus usageStatus = CodexUsageStatus.Unavailable("Refresh pending.");
+    private bool isRefreshingUsage;
     private MainForm? mainForm;
 
     public TrayApplicationContext()
     {
         appIcon = LoadAppIcon();
+        usageStatus = usageService.GetLocalSnapshotStatus();
         trayIcon = new NotifyIcon
         {
             Icon = appIcon,
@@ -19,6 +24,11 @@ internal sealed class TrayApplicationContext : ApplicationContext
         };
         trayIcon.ContextMenuStrip = BuildMenu();
         trayIcon.DoubleClick += (_, _) => ShowMainForm();
+
+        usageRefreshTimer.Interval = 60_000;
+        usageRefreshTimer.Tick += async (_, _) => await RefreshUsageStatusAsync();
+        usageRefreshTimer.Start();
+        _ = RefreshUsageStatusAsync();
     }
 
     private ContextMenuStrip BuildMenu()
@@ -53,12 +63,115 @@ internal sealed class TrayApplicationContext : ApplicationContext
             profilesMenu.DropDownItems.Add(new ToolStripMenuItem(AppText.S("No profiles", "暂无 profile")) { Enabled = false });
         }
         menu.Items.Add(profilesMenu);
+        AddUsageMenuItems(menu);
         menu.Items.Add(BuildLanguageMenu());
         menu.Items.Add(AppText.S("Restart Codex Client", "重启 Codex 客户端"), null, async (_, _) => await RestartCodexClientAsync());
-        menu.Items.Add(AppText.S("Refresh Tray Menu", "刷新托盘菜单"), null, (_, _) => trayIcon.ContextMenuStrip = BuildMenu());
+        menu.Items.Add(AppText.S("Refresh Tray Menu", "刷新托盘菜单"), null, async (_, _) => await RefreshUsageStatusAsync());
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add(AppText.S("Exit", "退出"), null, (_, _) => ExitThread());
         return menu;
+    }
+
+    private void AddUsageMenuItems(ContextMenuStrip menu)
+    {
+        menu.Items.Add(new ToolStripSeparator());
+        var usageItem = new ToolStripMenuItem(FormatUsageStatus())
+        {
+            Enabled = usageStatus.Kind == CodexUsageStatusKind.Available
+        };
+        menu.Items.Add(usageItem);
+        menu.Items.Add(AppText.S("Refresh Usage", "刷新 Usage"), null, async (_, _) => await RefreshUsageStatusAsync());
+    }
+
+    private string FormatUsageStatus()
+    {
+        return usageStatus.Kind switch
+        {
+            CodexUsageStatusKind.NotOAuth => AppText.S(
+                "Usage: OAuth profile required",
+                "Usage：需要 OAuth Profile"
+            ),
+            CodexUsageStatusKind.Unavailable => AppText.S(
+                $"Usage: {usageStatus.Message}",
+                $"Usage：{usageStatus.Message}"
+            ),
+            CodexUsageStatusKind.Available when usageStatus.Snapshot is { } snapshot => AppText.S(
+                $"Usage: {FormatPlanType(snapshot)} {FormatLimitLabel(snapshot.Primary)} {FormatRemaining(snapshot.Primary)} left, reset in {FormatResetDistance(snapshot.Primary)} | {FormatLimitLabel(snapshot.Secondary)} {FormatRemaining(snapshot.Secondary)} left",
+                $"Usage：{FormatPlanType(snapshot)} {FormatLimitLabel(snapshot.Primary)} 剩余 {FormatRemaining(snapshot.Primary)}，{FormatResetDistance(snapshot.Primary)} 后刷新 | {FormatLimitLabel(snapshot.Secondary)} 剩余 {FormatRemaining(snapshot.Secondary)}"
+            ),
+            _ => AppText.S("Usage: unavailable", "Usage：不可用")
+        };
+    }
+
+    private static string FormatPlanType(CodexUsageSnapshot snapshot)
+    {
+        return string.IsNullOrWhiteSpace(snapshot.PlanType)
+            ? ""
+            : snapshot.PlanType.ToUpperInvariant();
+    }
+
+    private static string FormatLimitLabel(CodexUsageLimit limit)
+    {
+        return limit.WindowSeconds switch
+        {
+            18000 => "5h",
+            604800 => "7d",
+            >= 86400 when limit.WindowSeconds % 86400 == 0 => $"{limit.WindowSeconds / 86400}d",
+            >= 3600 when limit.WindowSeconds % 3600 == 0 => $"{limit.WindowSeconds / 3600}h",
+            >= 60 when limit.WindowSeconds % 60 == 0 => $"{limit.WindowSeconds / 60}m",
+            _ => $"{limit.WindowSeconds}s"
+        };
+    }
+
+    private static string FormatRemaining(CodexUsageLimit limit)
+    {
+        var remaining = Math.Round(limit.RemainingPercent, 1);
+        return remaining % 1 == 0
+            ? $"{remaining:0}%"
+            : $"{remaining:0.0}%";
+    }
+
+    private static string FormatResetDistance(CodexUsageLimit limit)
+    {
+        if (limit.ResetAt is null)
+        {
+            return "--";
+        }
+
+        var remaining = limit.ResetAt.Value - DateTimeOffset.UtcNow;
+        if (remaining <= TimeSpan.Zero)
+        {
+            return "0m";
+        }
+
+        var days = (int)remaining.TotalDays;
+        if (days > 0)
+        {
+            return $"{days}d{remaining.Hours}h";
+        }
+
+        return remaining.Hours > 0
+            ? $"{remaining.Hours}h{remaining.Minutes:00}m"
+            : $"{remaining.Minutes}m";
+    }
+
+    private async Task RefreshUsageStatusAsync()
+    {
+        if (isRefreshingUsage)
+        {
+            return;
+        }
+
+        isRefreshingUsage = true;
+        try
+        {
+            usageStatus = await usageService.GetStatusAsync();
+            trayIcon.ContextMenuStrip = BuildMenu();
+        }
+        finally
+        {
+            isRefreshingUsage = false;
+        }
     }
 
     private ToolStripMenuItem BuildLanguageMenu()
@@ -104,7 +217,9 @@ internal sealed class TrayApplicationContext : ApplicationContext
         try
         {
             profileService.SwitchTo(profile);
+            usageStatus = usageService.GetLocalSnapshotStatus();
             trayIcon.ContextMenuStrip = BuildMenu();
+            _ = RefreshUsageStatusAsync();
             MessageBox.Show(
                 AppText.S(
                     $"Switched to {profile.Name}.\n\nSession history remains in the shared .codex folder.",
@@ -128,6 +243,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
                 "Win.Codex.ProfileSwitch - 正在重启 Codex"
             );
             var result = await restartService.RestartAsync();
+            usageStatus = await usageService.GetStatusAsync();
             trayIcon.ContextMenuStrip = BuildMenu();
 
             MessageBox.Show(
@@ -169,6 +285,8 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
     protected override void ExitThreadCore()
     {
+        usageRefreshTimer.Stop();
+        usageRefreshTimer.Dispose();
         trayIcon.Visible = false;
         trayIcon.Dispose();
         appIcon.Dispose();
