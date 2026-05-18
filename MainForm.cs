@@ -3,14 +3,17 @@ namespace Win.Codex.ProfileSwitch;
 internal sealed class MainForm : Form
 {
     private readonly ProfileSwitcherService profileService;
+    private readonly OAuthImportService oauthImportService;
     private readonly ListBox profileList = new();
     private readonly Label details = new();
+    private bool isImportingOAuth;
 
     public event EventHandler? ProfilesChanged;
 
     public MainForm(ProfileSwitcherService profileService)
     {
         this.profileService = profileService;
+        oauthImportService = new OAuthImportService(profileService);
         Text = AppText.S(
             "Win.Codex.ProfileSwitch - Profile Switcher",
             "Win.Codex.ProfileSwitch - Profile 管理"
@@ -46,6 +49,8 @@ internal sealed class MainForm : Form
         Controls.Add(root);
 
         profileList.Dock = DockStyle.Fill;
+        profileList.DrawMode = DrawMode.OwnerDrawFixed;
+        profileList.DrawItem += DrawProfileListItem;
         profileList.SelectedIndexChanged += (_, _) => UpdateDetails();
         root.Controls.Add(profileList, 0, 0);
 
@@ -62,6 +67,7 @@ internal sealed class MainForm : Form
         };
         leftActions.Controls.Add(LanguageSelector());
         leftActions.Controls.Add(Button(AppText.S("Refresh", "刷新"), (_, _) => RefreshProfiles()));
+        leftActions.Controls.Add(Button(AppText.S("Import OAuth Account", "导入 OAuth 账号"), ImportOAuthAccount));
         leftActions.Controls.Add(Button(AppText.S("Import Existing Configs", "扫描已有配置"), ImportExistingProfiles));
         leftActions.Controls.Add(Button(AppText.S("Open Profiles Folder", "打开目录"), (_, _) => profileService.OpenProfilesFolder()));
         root.Controls.Add(leftActions, 0, 1);
@@ -122,7 +128,7 @@ internal sealed class MainForm : Form
     {
         var profiles = profileService.ListProfiles();
         profileList.DataSource = null;
-        profileList.DataSource = profiles;
+        profileList.DataSource = BuildProfileListItems(profiles);
         UpdateDetails();
         ProfilesChanged?.Invoke(this, EventArgs.Empty);
     }
@@ -134,7 +140,7 @@ internal sealed class MainForm : Form
             ? AppText.S("No matching profile", "未匹配任何 Profile")
             : currentProfile.Name;
 
-        if (profileList.SelectedItem is not CodexProfile profile)
+        if (SelectedProfile() is not { } profile)
         {
             details.Text = AppText.S($"""
             Current Profile:
@@ -233,8 +239,7 @@ internal sealed class MainForm : Form
         {
             var profile = profileService.CreateProfileFromCurrent(name);
             RefreshProfiles();
-            profileList.SelectedItem = profileList.Items.Cast<CodexProfile>()
-                .FirstOrDefault(item => item.Name.Equals(profile.Name, StringComparison.OrdinalIgnoreCase));
+            SelectProfile(profile.Name);
         }
         catch (Exception ex)
         {
@@ -267,9 +272,59 @@ internal sealed class MainForm : Form
         }
     }
 
+    private async void ImportOAuthAccount(object? sender, EventArgs e)
+    {
+        if (isImportingOAuth)
+        {
+            return;
+        }
+
+        isImportingOAuth = true;
+        UseWaitCursor = true;
+        details.Text = AppText.S(
+            "Waiting for OAuth login callback...\n\nYour browser has been opened. Complete login there, then return to this window.",
+            "正在等待 OAuth 登录回调...\n\n浏览器已打开。请在浏览器中完成登录，然后回到这个窗口。"
+        );
+
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+            var result = await oauthImportService.ImportAsync(timeout.Token);
+            RefreshProfiles();
+            SelectProfile(result.Profile.Name);
+            MessageBox.Show(
+                AppText.S(
+                    $"Imported OAuth profile: {result.Profile.Name}",
+                    $"已导入 OAuth Profile：{result.Profile.Name}"
+                ),
+                "Win.Codex.ProfileSwitch",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Information
+            );
+        }
+        catch (OperationCanceledException)
+        {
+            ShowError(new InvalidOperationException(AppText.S(
+                "OAuth login timed out. Please try again.",
+                "OAuth 登录已超时，请重新尝试。"
+            )));
+            UpdateDetails();
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex);
+            UpdateDetails();
+        }
+        finally
+        {
+            UseWaitCursor = false;
+            isImportingOAuth = false;
+        }
+    }
+
     private void RenameSelectedProfile(object? sender, EventArgs e)
     {
-        if (profileList.SelectedItem is not CodexProfile profile)
+        if (SelectedProfile() is not { } profile)
         {
             return;
         }
@@ -287,8 +342,7 @@ internal sealed class MainForm : Form
         {
             var renamed = profileService.RenameProfile(profile, name);
             RefreshProfiles();
-            profileList.SelectedItem = profileList.Items.Cast<CodexProfile>()
-                .FirstOrDefault(item => item.Name.Equals(renamed.Name, StringComparison.OrdinalIgnoreCase));
+            SelectProfile(renamed.Name);
         }
         catch (Exception ex)
         {
@@ -298,7 +352,7 @@ internal sealed class MainForm : Form
 
     private void OpenSelectedProfileFile(string fileName)
     {
-        if (profileList.SelectedItem is not CodexProfile profile)
+        if (SelectedProfile() is not { } profile)
         {
             return;
         }
@@ -315,7 +369,7 @@ internal sealed class MainForm : Form
 
     private void OpenSelectedProfileFolder(object? sender, EventArgs e)
     {
-        if (profileList.SelectedItem is not CodexProfile profile)
+        if (SelectedProfile() is not { } profile)
         {
             return;
         }
@@ -332,7 +386,7 @@ internal sealed class MainForm : Form
 
     private void SwitchSelectedProfile(object? sender, EventArgs e)
     {
-        if (profileList.SelectedItem is not CodexProfile profile)
+        if (SelectedProfile() is not { } profile)
         {
             return;
         }
@@ -346,6 +400,108 @@ internal sealed class MainForm : Form
         {
             ShowError(ex);
         }
+    }
+
+    private CodexProfile? SelectedProfile() =>
+        profileList.SelectedItem is ProfileListItem { Profile: { } profile }
+            ? profile
+            : null;
+
+    private void SelectProfile(string profileName)
+    {
+        profileList.SelectedItem = profileList.Items
+            .Cast<ProfileListItem>()
+            .FirstOrDefault(item =>
+                item.Profile?.Name.Equals(profileName, StringComparison.OrdinalIgnoreCase) == true);
+    }
+
+    private static IReadOnlyList<ProfileListItem> BuildProfileListItems(IReadOnlyList<CodexProfile> profiles)
+    {
+        var items = new List<ProfileListItem>();
+        var completeProfiles = profiles
+            .Where(profile => profile.IsComplete)
+            .ToList();
+        foreach (var group in completeProfiles
+            .GroupBy(ProfileGroupName)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            AddGroup(items, group.Key, group);
+        }
+
+        AddGroup(
+            items,
+            AppText.S("Incomplete Profiles", "缺文件的 Profile"),
+            profiles.Where(profile => !profile.IsComplete)
+        );
+
+        return items;
+    }
+
+    private static void AddGroup(
+        List<ProfileListItem> items,
+        string groupName,
+        IEnumerable<CodexProfile> profiles
+    )
+    {
+        var groupProfiles = profiles
+            .OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (groupProfiles.Count == 0)
+        {
+            return;
+        }
+
+        items.Add(ProfileListItem.Header(groupName));
+        items.AddRange(groupProfiles.Select(ProfileListItem.ProfileItem));
+    }
+
+    private static string ProfileGroupName(CodexProfile profile)
+    {
+        if (profile.Name.Contains('@', StringComparison.Ordinal))
+        {
+            return "OAuth";
+        }
+
+        return "Provider";
+    }
+
+    private void DrawProfileListItem(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0 || e.Index >= profileList.Items.Count)
+        {
+            return;
+        }
+
+        e.DrawBackground();
+        var item = (ProfileListItem)profileList.Items[e.Index];
+        var color = ProfileListTextColor(item, e.State);
+        var bounds = new Rectangle(e.Bounds.Left + 2, e.Bounds.Top, e.Bounds.Width - 4, e.Bounds.Height);
+        TextRenderer.DrawText(
+            e.Graphics,
+            item.Text,
+            e.Font ?? profileList.Font,
+            bounds,
+            color,
+            TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis
+        );
+        e.DrawFocusRectangle();
+    }
+
+    private static Color ProfileListTextColor(ProfileListItem item, DrawItemState state)
+    {
+        if (item.Profile?.IsCurrent == true)
+        {
+            return Color.Red;
+        }
+
+        if (state.HasFlag(DrawItemState.Selected))
+        {
+            return SystemColors.HighlightText;
+        }
+
+        return item.Profile is null
+            ? SystemColors.GrayText
+            : SystemColors.WindowText;
     }
 
     private static Button Button(string text, EventHandler handler)
@@ -412,4 +568,18 @@ internal static class Prompt
         form.CancelButton = cancel;
         return form.ShowDialog() == DialogResult.OK ? textBox.Text : null;
     }
+}
+
+internal sealed record ProfileListItem(string Text, CodexProfile? Profile)
+{
+    public static ProfileListItem Header(string text) => new($"[{text}]", null);
+
+    public static ProfileListItem ProfileItem(CodexProfile profile) => new($"  {ProfileDisplayName(profile)}", profile);
+
+    public override string ToString() => Text;
+
+    private static string ProfileDisplayName(CodexProfile profile) =>
+        profile.IsComplete
+            ? profile.Name
+            : AppText.S($"{profile.Name} (missing files)", $"{profile.Name} (缺少文件)");
 }

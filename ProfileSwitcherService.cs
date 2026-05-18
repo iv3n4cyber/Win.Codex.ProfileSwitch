@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Win.Codex.ProfileSwitch;
 
 internal sealed record CodexProfile(string Name, string DirectoryPath, bool IsCurrent = false)
@@ -36,6 +38,19 @@ internal sealed class ProfileSwitcherService
 
         CopyRequiredCurrentFile(CodexPaths.AuthJsonPath, Path.Combine(directory, "auth.json"));
         CopyRequiredCurrentFile(CodexPaths.ConfigTomlPath, Path.Combine(directory, "config.toml"));
+        return new CodexProfile(profileName, directory);
+    }
+
+    public CodexProfile CreateProfileFromOAuth(string preferredName, string authJson, string configToml)
+    {
+        CodexPaths.EnsureDirectories();
+
+        var profileName = UniqueProfileName(preferredName);
+        var directory = Path.Combine(CodexPaths.ProfilesRoot, profileName);
+        Directory.CreateDirectory(directory);
+
+        File.WriteAllText(Path.Combine(directory, "auth.json"), authJson, Encoding.UTF8);
+        File.WriteAllText(Path.Combine(directory, "config.toml"), configToml, Encoding.UTF8);
         return new CodexProfile(profileName, directory);
     }
 
@@ -241,5 +256,19 @@ internal sealed class ProfileSwitcherService
         }
 
         return trimmed;
+    }
+
+    private static string UniqueProfileName(string preferredName)
+    {
+        var baseName = NormalizeProfileName(preferredName);
+        var candidate = baseName;
+        var index = 2;
+        while (Directory.Exists(Path.Combine(CodexPaths.ProfilesRoot, candidate)))
+        {
+            candidate = $"{baseName}-{index}";
+            index++;
+        }
+
+        return candidate;
     }
 }

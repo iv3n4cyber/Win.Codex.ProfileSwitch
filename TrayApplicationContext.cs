@@ -48,16 +48,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         ).Enabled = false;
         menu.Items.Add(new ToolStripSeparator());
         var profilesMenu = new ToolStripMenuItem(AppText.S("Switch Profile", "切换 Profile"));
-        foreach (var profile in profiles)
-        {
-            var item = new ToolStripMenuItem(profile.ToString())
-            {
-                Enabled = profile.IsComplete,
-                Checked = profile.IsCurrent
-            };
-            item.Click += (_, _) => SwitchProfile(profile);
-            profilesMenu.DropDownItems.Add(item);
-        }
+        AddGroupedProfileMenuItems(profilesMenu, profiles);
         if (profilesMenu.DropDownItems.Count == 0)
         {
             profilesMenu.DropDownItems.Add(new ToolStripMenuItem(AppText.S("No profiles", "暂无 profile")) { Enabled = false });
@@ -82,6 +73,59 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(usageItem);
         menu.Items.Add(AppText.S("Refresh Usage", "刷新 Usage"), null, async (_, _) => await RefreshUsageStatusAsync());
     }
+
+    private void AddGroupedProfileMenuItems(ToolStripMenuItem profilesMenu, IReadOnlyList<CodexProfile> profiles)
+    {
+        var completeProfiles = profiles.Where(profile => profile.IsComplete).ToList();
+        foreach (var group in completeProfiles
+            .GroupBy(ProfileGroupName)
+            .OrderBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            AddProfileMenuGroup(profilesMenu, group.Key, group);
+        }
+
+        AddProfileMenuGroup(
+            profilesMenu,
+            AppText.S("Incomplete Profiles", "缺文件的 Profile"),
+            profiles.Where(profile => !profile.IsComplete)
+        );
+    }
+
+    private void AddProfileMenuGroup(
+        ToolStripMenuItem profilesMenu,
+        string groupName,
+        IEnumerable<CodexProfile> profiles
+    )
+    {
+        var groupProfiles = profiles
+            .OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (groupProfiles.Count == 0)
+        {
+            return;
+        }
+
+        var groupItem = new ToolStripMenuItem($"[{groupName}]") { Enabled = false };
+        profilesMenu.DropDownItems.Add(groupItem);
+        foreach (var profile in groupProfiles)
+        {
+            var item = new ToolStripMenuItem(ProfileMenuDisplayName(profile))
+            {
+                Enabled = profile.IsComplete,
+                Checked = profile.IsCurrent
+            };
+            item.Click += (_, _) => SwitchProfile(profile);
+            profilesMenu.DropDownItems.Add(item);
+        }
+    }
+
+    private static string ProfileGroupName(CodexProfile profile) =>
+        profile.Name.Contains('@', StringComparison.Ordinal) ? "OAuth" : "Provider";
+
+    private static string ProfileMenuDisplayName(CodexProfile profile) =>
+        profile.IsComplete
+            ? profile.Name
+            : AppText.S($"{profile.Name} (missing files)", $"{profile.Name} (缺少文件)");
 
     private string FormatUsageStatus()
     {

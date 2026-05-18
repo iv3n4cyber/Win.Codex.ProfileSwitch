@@ -8,6 +8,7 @@ It switches only the active `auth.json` and `config.toml` files. It does not mov
 
 - Runs as a Windows tray app
 - Creates a profile from the current `%USERPROFILE%\.codex\auth.json` and `config.toml`
+- Imports a ChatGPT OAuth account through the browser and localhost callback flow
 - Imports paired `auth*.json` and `config*.toml` files from `%USERPROFILE%\.codex`
 - Switches profiles from the tray menu or management window
 - Renames profiles
@@ -29,9 +30,10 @@ It switches only the active `auth.json` and `config.toml` files. It does not mov
 2. Run Win.Codex.ProfileSwitch.
 3. Double-click the tray icon to open the management window, or right-click the tray icon to use the quick menu.
 4. Click `Create Profile From Current Config` to save the current Codex files as a reusable profile.
-5. Add more profiles by placing folders under `%USERPROFILE%\.codex\profiles\`, each with its own `auth.json` and `config.toml`.
-6. Select a complete profile and switch to it from the tray menu or management window.
-7. Start a new Codex session, or restart the Codex client from the tray menu, so the newly written files are used.
+5. Click `Import OAuth Account` to open the OpenAI OAuth login page in your browser. After login, the app captures the localhost callback and creates a new profile automatically.
+6. Add more profiles by placing folders under `%USERPROFILE%\.codex\profiles\`, each with its own `auth.json` and `config.toml`.
+7. Select a complete profile and switch to it from the tray menu or management window.
+8. Start a new Codex session, or restart the Codex client from the tray menu, so the newly written files are used.
 
 You can also import existing paired files from `%USERPROFILE%\.codex`. For example:
 
@@ -61,6 +63,12 @@ The active Codex files are:
 ```text
 %USERPROFILE%\.codex\auth.json
 %USERPROFILE%\.codex\config.toml
+```
+
+OAuth login uses a temporary local callback listener:
+
+```text
+http://localhost:1455/auth/callback
 ```
 
 Backups are written to:
